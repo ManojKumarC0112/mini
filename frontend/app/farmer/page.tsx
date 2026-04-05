@@ -10,7 +10,7 @@ import { ScanLine, BarChart3, ArrowLeft, Store } from "lucide-react";
 import OnboardingForm from "@/components/OnboardingForm";
 import MandiOptimizer from "@/components/MandiOptimizer";
 import CinematicSpotlight, { SpotlightStep } from "@/components/CinematicSpotlight";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import CameraScanner from "@/components/CameraScanner";
 import WeatherTimeline from "@/components/WeatherTimeline";
 import GrowingPhaseDashboard from "@/components/GrowingPhaseDashboard";
@@ -41,12 +41,13 @@ export default function FarmerPage() {
     setFirstScanComplete,
     userName,
     lockedPlan,
+    selectedMandi,
     lastLockDate,
     setLastLockDate,
   } = useAppStore();
 
   const [isScanning, setIsScanning] = useState(false);
-  const normalizedInitialPhase = useRef(false);
+  const spokenPhaseRef = useRef("");
 
   useEffect(() => {
     if (!hydrated) return;
@@ -59,14 +60,6 @@ export default function FarmerPage() {
     }
   }, [role, router, hydrated]);
 
-  useEffect(() => {
-    if (!hydrated || role !== "Farmer" || normalizedInitialPhase.current) return;
-    normalizedInitialPhase.current = true;
-    if (phase === "selling" || phase === "logistics" || phase === "live") {
-      setPhase(firstScanComplete ? "planning" : "onboarding");
-    }
-  }, [hydrated, role, phase, firstScanComplete, setPhase]);
-
   const getSpeechLocale = (lang: string) => {
     if (lang === "hi") return "hi-IN";
     if (lang === "mr") return "mr-IN";
@@ -75,13 +68,13 @@ export default function FarmerPage() {
     return "en-IN";
   };
 
-  const triggerTTS = (text: string) => {
+  const triggerTTS = useCallback((text: string) => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = getSpeechLocale(language);
     window.speechSynthesis.speak(utterance);
-  };
+  }, [language]);
 
   const handleScanComplete = (data: ScanResult) => {
     setIsScanning(false);
@@ -99,30 +92,55 @@ export default function FarmerPage() {
   };
 
   useEffect(() => {
-    if (phase !== "growing" || typeof window === "undefined" || !window.speechSynthesis) return;
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    if (!["growing", "selling", "logistics"].includes(phase)) return;
+
+    const key = `${phase}-${language}-${selectedMandi?.mandi_name || ""}`;
+    if (spokenPhaseRef.current === key) return;
+    spokenPhaseRef.current = key;
 
     const safe = lockedPlan?.safe_crop?.name || "safe crop";
-    const healer = lockedPlan?.healer_crop?.name || "soil healer crop";
-    const jackpot = lockedPlan?.jackpot_crop?.name || "high return crop";
-    const summary =
-      language === "hi"
-        ? `Yeh growing phase hai. Aapke 20 acre mein 60 pratishat ${safe}, 10 pratishat ${healer}, aur 30 pratishat ${jackpot} hai. Neeche weather advisory aur mandi ke liye recommended crops diye gaye hain.`
-        : language === "mr"
-        ? `हा growing phase आहे. तुमच्या 20 एकर जमिनीत 60 टक्के ${safe}, 10 टक्के ${healer}, आणि 30 टक्के ${jackpot} आहे. खाली हवामान सल्ला आणि मंडीसाठी शिफारस केलेली पिके आहेत.`
-        : `You are now in the growing phase. Your 20 acres are split into 60 percent ${safe}, 10 percent ${healer}, and 30 percent ${jackpot}. Below, you can see weather advisory and recommended crops for mandi planning.`;
+    const healer = lockedPlan?.healer_crop?.name || "soil-healer crop";
+    const jackpot = lockedPlan?.jackpot_crop?.name || "high-return crop";
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(summary);
-    utterance.lang = getSpeechLocale(language);
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
-  }, [phase, language, lockedPlan]);
+    let summary = "";
+    if (phase === "growing") {
+      if (language === "hi") {
+        summary = `आप Growing phase में हैं। 60 प्रतिशत ${safe}, 10 प्रतिशत ${healer}, और 30 प्रतिशत ${jackpot} योजना सक्रिय है। नीचे मौसम और फसल सलाह देखें।`;
+      } else if (language === "mr") {
+        summary = `तुम्ही Growing phase मध्ये आहात. 60 टक्के ${safe}, 10 टक्के ${healer}, आणि 30 टक्के ${jackpot} योजना सक्रिय आहे. खाली हवामान आणि पिक सल्ला आहे.`;
+      } else {
+        summary = `You are in the Growing phase. Your 60-10-30 crop plan is active with ${safe}, ${healer}, and ${jackpot}. Review weather and crop advisories below.`;
+      }
+    } else if (phase === "selling") {
+      if (language === "hi") summary = "यह Market phase है। यहाँ आप मंडियों का तुलना करके सबसे अधिक नेट प्रॉफिट वाला विकल्प चुन सकते हैं।";
+      else if (language === "mr") summary = "हा Market phase आहे. येथे तुम्ही मंड्यांची तुलना करून सर्वाधिक नेट नफा देणारा पर्याय निवडू शकता.";
+      else summary = "This is the Market phase. Compare mandis and pick the option with the highest net profit.";
+    } else if (phase === "logistics") {
+      if (language === "hi") {
+        summary = `यह Logistics phase है। ${selectedMandi?.mandi_name ? `${selectedMandi.mandi_name} के लिए` : ""} ड्राइवर बुकिंग और लाइव ट्रिप अपडेट यहां मिलेंगे।`;
+      } else if (language === "mr") {
+        summary = `हा Logistics phase आहे. ${selectedMandi?.mandi_name ? `${selectedMandi.mandi_name} साठी` : ""} ड्रायव्हर बुकिंग आणि लाईव्ह ट्रिप अपडेट येथे दिसतील.`;
+      } else {
+        summary = `This is the Logistics phase. ${selectedMandi?.mandi_name ? `For ${selectedMandi.mandi_name}, ` : ""}you can book a driver and track live trip updates here.`;
+      }
+    }
+
+    if (!summary) return;
+    triggerTTS(summary);
+    fetch(`http://localhost:8000/api/tts?text=${encodeURIComponent(summary)}&language=${language}`, { method: "POST" }).catch(() => {});
+  }, [phase, language, lockedPlan, selectedMandi, triggerTTS]);
 
   const tourSteps: SpotlightStep[] = [
     {
       target: ".scan-widget",
-      title: "OCR Scan",
-      content: `Namaste ${userName || "Farmer"}! Sabse pehle Soil Health Card scan karein.`,
+      title: language === "hi" ? "OCR स्कैन" : language === "mr" ? "OCR स्कॅन" : "OCR Scan",
+      content:
+        language === "hi"
+          ? `${userName || "किसान"} जी, सबसे पहले Soil Health Card स्कैन करें।`
+          : language === "mr"
+          ? `${userName || "शेतकरी"}, सर्वप्रथम Soil Health Card स्कॅन करा.`
+          : `${userName || "Farmer"}, first scan your Soil Health Card.`,
     },
   ];
 
@@ -139,9 +157,7 @@ export default function FarmerPage() {
           />
           <div className="text-center">
             <h1 className="text-2xl font-manrope font-black text-slate-900 leading-tight">Annadata OS.</h1>
-            <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-2 animate-pulse">
-              Initializing Neural Node...
-            </p>
+            <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-2 animate-pulse">Initializing Neural Node...</p>
           </div>
         </div>
       ) : (
@@ -160,35 +176,15 @@ export default function FarmerPage() {
 
             <div className="flex items-center gap-6">
               <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                <button
-                  onClick={() => setLanguage("hi")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold transition ${
-                    language === "hi" ? "bg-primary text-white" : "text-slate-500"
-                  }`}
-                >
+                <button onClick={() => setLanguage("hi")} className={`px-3 py-1 rounded-md text-xs font-bold transition ${language === "hi" ? "bg-primary text-white" : "text-slate-500"}`}>
                   HN
                 </button>
-                <button
-                  onClick={() => setLanguage("en")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold transition ${
-                    language === "en" ? "bg-primary text-white" : "text-slate-500"
-                  }`}
-                >
+                <button onClick={() => setLanguage("en")} className={`px-3 py-1 rounded-md text-xs font-bold transition ${language === "en" ? "bg-primary text-white" : "text-slate-500"}`}>
                   EN
                 </button>
-                <button
-                  onClick={() => setLanguage("mr")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold transition ${
-                    language === "mr" ? "bg-primary text-white" : "text-slate-500"
-                  }`}
-                >
+                <button onClick={() => setLanguage("mr")} className={`px-3 py-1 rounded-md text-xs font-bold transition ${language === "mr" ? "bg-primary text-white" : "text-slate-500"}`}>
                   MR
                 </button>
-              </div>
-
-              <div className="hidden md:flex items-center gap-3 py-1 px-3 bg-emerald-50 border border-emerald-100 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-tighter">Secure Terminal</span>
               </div>
             </div>
           </div>
@@ -222,18 +218,12 @@ export default function FarmerPage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                      <FrostedCard
-                        className="scan-widget flex flex-col justify-center items-center py-8 border-dashed border-2 border-primary/40 text-primary hover:bg-primary/5 transition-colors cursor-pointer group"
-                        onClick={() => setIsScanning(true)}
-                      >
+                      <FrostedCard className="scan-widget flex flex-col justify-center items-center py-8 border-dashed border-2 border-primary/40 text-primary hover:bg-primary/5 transition-colors cursor-pointer group" onClick={() => setIsScanning(true)}>
                         <ScanLine size={42} className="mb-4 group-hover:scale-110 transition-transform" />
                         <span className="font-manrope font-bold text-center">Scan Soil Health Card</span>
                       </FrostedCard>
 
-                      <FrostedCard
-                        className="mandi-widget flex flex-col justify-center items-center py-8 border-dashed border-2 border-emerald-400/40 text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer group"
-                        onClick={() => setPhase("selling")}
-                      >
+                      <FrostedCard className="mandi-widget flex flex-col justify-center items-center py-8 border-dashed border-2 border-emerald-400/40 text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer group" onClick={() => setPhase("selling")}>
                         <Store size={42} className="mb-4 group-hover:scale-110 transition-transform" />
                         <span className="font-manrope font-bold text-center">Open Mandi Prices</span>
                       </FrostedCard>
@@ -268,10 +258,7 @@ export default function FarmerPage() {
                     <h3 className="text-2xl font-bold text-emerald-900">Harvest Cycle Complete?</h3>
                     <p className="text-emerald-700 mt-1">Ready to optimize mandi route and book a driver.</p>
                   </div>
-                  <button
-                    onClick={() => setPhase("selling")}
-                    className="px-10 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all font-manrope"
-                  >
+                  <button onClick={() => setPhase("selling")} className="px-10 py-4 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all font-manrope">
                     Generate Mandi Route
                   </button>
                 </div>

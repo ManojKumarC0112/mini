@@ -24,31 +24,30 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  const steps: SpotlightStep[] = useMemo(
-    () => [
-      {
-        target: ".step-name",
-        title: "Namaste!",
-        content: "Apna poora naam yahan darj karein. (Please enter your full name).",
-      },
-      {
-        target: ".step-phone",
-        title: "Secure Identity",
-        content: "Ab apna 10 ankon ka mobile number darj karein. (Enter your 10 digit mobile number).",
-      },
-      {
-        target: ".step-location",
-        title: "Region Mapping",
-        content: "Ab apna pata darj karein ya location allow karein. (Enter your address or allow GPS).",
-      },
-      {
-        target: ".step-submit",
-        title: "Final Step",
-        content: "Ab Initialize Node dabayein to continue.",
-      },
-    ],
-    []
-  );
+  const steps: SpotlightStep[] = useMemo(() => {
+    if (language === "hi") {
+      return [
+        { target: ".step-name", title: "स्वागत है", content: "कृपया अपना पूरा नाम दर्ज करें।" },
+        { target: ".step-phone", title: "पहचान", content: "अब अपना 10 अंकों का मोबाइल नंबर दर्ज करें।" },
+        { target: ".step-location", title: "स्थान", content: "अपना पता दर्ज करें या लोकेशन अनुमति दें।" },
+        { target: ".step-submit", title: "अंतिम चरण", content: "अब आगे बढ़ने के लिए Initialize Node दबाएं।" },
+      ];
+    }
+    if (language === "mr") {
+      return [
+        { target: ".step-name", title: "स्वागत", content: "कृपया तुमचे पूर्ण नाव भरा." },
+        { target: ".step-phone", title: "ओळख", content: "आता तुमचा 10 अंकी मोबाईल नंबर भरा." },
+        { target: ".step-location", title: "स्थान", content: "तुमचा पत्ता भरा किंवा लोकेशन परवानगी द्या." },
+        { target: ".step-submit", title: "शेवटचा टप्पा", content: "पुढे जाण्यासाठी Initialize Node दाबा." },
+      ];
+    }
+    return [
+      { target: ".step-name", title: "Welcome", content: "Please enter your full name." },
+      { target: ".step-phone", title: "Identity", content: "Now enter your 10-digit mobile number." },
+      { target: ".step-location", title: "Location", content: "Enter your address or allow GPS location." },
+      { target: ".step-submit", title: "Final Step", content: "Press Initialize Node to continue." },
+    ];
+  }, [language]);
 
   const speakStep = useCallback(async (text: string) => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -173,17 +172,27 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             Onboarding Spotlight
           </div>
-          <h2 className="text-2xl md:text-4xl font-manrope font-black text-slate-900 tracking-tight">Kisan Onboarding</h2>
-          <p className="text-sm md:text-base text-slate-500 font-inter mt-3">Initialize your local intelligence node.</p>
+          <h2 className="text-2xl md:text-4xl font-manrope font-black text-slate-900 tracking-tight">
+            {language === "hi" ? "किसान ऑनबोर्डिंग" : language === "mr" ? "शेतकरी ऑनबोर्डिंग" : "Farmer Onboarding"}
+          </h2>
+          <p className="text-sm md:text-base text-slate-500 font-inter mt-3">
+            {language === "hi"
+              ? "अपना स्थानीय इंटेलिजेंस नोड शुरू करें।"
+              : language === "mr"
+              ? "तुमचा स्थानिक इंटेलिजन्स नोड सुरू करा."
+              : "Initialize your local intelligence node."}
+          </p>
         </div>
 
         <FrostedCard className="p-6 md:p-10 flex flex-col gap-6 md:gap-8 relative border-slate-200/60 shadow-xl shadow-slate-200/30">
           <div className="step-name flex flex-col gap-3">
-            <label className="text-slate-600 text-sm font-bold uppercase tracking-widest">Full Name</label>
+            <label className="text-slate-600 text-sm font-bold uppercase tracking-widest">
+              {language === "hi" ? "पूरा नाम" : language === "mr" ? "पूर्ण नाव" : "Full Name"}
+            </label>
             <input
               autoFocus
               type="text"
-              placeholder="Ramesh Kumar..."
+              placeholder={language === "hi" ? "रमेश कुमार..." : language === "mr" ? "रमेश कुमार..." : "Ramesh Kumar..."}
               className="w-full bg-slate-50 text-slate-900 rounded-xl p-4 border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 focus:outline-none transition-all font-inter font-medium"
               value={name}
               onChange={(e) => {
@@ -195,10 +204,12 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
           </div>
 
           <div className="step-phone flex flex-col gap-3">
-            <label className="text-slate-600 text-sm font-bold uppercase tracking-widest">Mobile Number</label>
+            <label className="text-slate-600 text-sm font-bold uppercase tracking-widest">
+              {language === "hi" ? "मोबाइल नंबर" : language === "mr" ? "मोबाईल नंबर" : "Mobile Number"}
+            </label>
             <input
               type="tel"
-              placeholder="+91 XXXXX XXXXX"
+              placeholder={language === "hi" ? "+91 10 अंकों का नंबर" : language === "mr" ? "+91 10 अंकी नंबर" : "+91 XXXXX XXXXX"}
               className="w-full bg-slate-50 text-slate-900 rounded-xl p-4 border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 focus:outline-none transition-all font-inter font-medium"
               value={phone}
               onChange={(e) => {
@@ -210,12 +221,16 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
           </div>
 
           <div className="step-location flex flex-col gap-3 relative">
-            <label className="text-slate-600 text-sm font-bold uppercase tracking-widest">District / Tehsil</label>
+            <label className="text-slate-600 text-sm font-bold uppercase tracking-widest">
+              {language === "hi" ? "जिला / तहसील" : language === "mr" ? "जिल्हा / तालुका" : "District / Tehsil"}
+            </label>
             <div className="flex gap-3">
               <div className="flex-1 relative">
                 <input
                   type="text"
-                  placeholder="Nashik, Maharashtra..."
+                  placeholder={
+                    language === "hi" ? "नाशिक, महाराष्ट्र..." : language === "mr" ? "नाशिक, महाराष्ट्र..." : "Nashik, Maharashtra..."
+                  }
                   className="w-full bg-slate-50 text-slate-900 rounded-xl p-4 border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 focus:outline-none transition-all font-inter font-medium"
                   value={address}
                   onChange={(e) => handleSearch(e.target.value)}
@@ -258,7 +273,9 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
             onClick={handleRegister}
             disabled={!name || !phone || !address}
           >
-            <span className="uppercase tracking-widest text-sm">Initialize Node</span>
+            <span className="uppercase tracking-widest text-sm">
+              {language === "hi" ? "नोड प्रारंभ करें" : language === "mr" ? "नोड सुरू करा" : "Initialize Node"}
+            </span>
             <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
           </button>
         </FrostedCard>

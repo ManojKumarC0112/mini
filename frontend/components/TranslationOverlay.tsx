@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import Script from "next/script";
 import { Globe } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
@@ -13,63 +13,50 @@ const SUPPORTED = [
   { code: "ta", label: "Tamil" },
 ];
 
+declare global {
+  interface Window {
+    googleTranslateElementInit?: () => void;
+    google?: {
+      translate?: {
+        TranslateElement?: new (options: object, id: string) => unknown;
+      };
+    };
+  }
+}
+
 export default function TranslationOverlay() {
   const { language, setLanguage } = useAppStore();
-  const intervalRef = useRef<number | null>(null);
 
   const applyGoogleLanguage = (lang: string) => {
     const combo = document.querySelector(".goog-te-combo") as HTMLSelectElement | null;
-    if (combo) {
-      combo.value = lang;
-      combo.dispatchEvent(new Event("change"));
-      return true;
-    }
-    return false;
+    if (!combo) return false;
+    combo.value = lang;
+    combo.dispatchEvent(new Event("change"));
+    return true;
   };
 
-  const applyCookieFallback = (lang: string) => {
+  const applyCookie = (lang: string) => {
     const value = `/en/${lang}`;
     document.cookie = `googtrans=${value}; path=/`;
     document.cookie = `googtrans=${value}; domain=${window.location.hostname}; path=/`;
   };
 
   useEffect(() => {
-    let attempts = 0;
-    const run = () => {
-      const ok = applyGoogleLanguage(language);
-      if (!ok) applyCookieFallback(language);
-      attempts += 1;
-      if (ok || attempts > 20) {
-        if (intervalRef.current) window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-
-    run();
-    intervalRef.current = window.setInterval(run, 300);
-
-    return () => {
-      if (intervalRef.current) window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    };
+    // Keep Google and app language aligned after reload.
+    const t = setTimeout(() => {
+      applyCookie(language);
+      applyGoogleLanguage(language);
+    }, 400);
+    return () => clearTimeout(t);
   }, [language]);
 
   const handleLanguageChange = (nextLang: string) => {
     if (nextLang === language) return;
     setLanguage(nextLang);
-    const applied = applyGoogleLanguage(nextLang);
-    applyCookieFallback(nextLang);
-
-    // Google translate can be inconsistent in SPA mode; force soft refresh
-    // so translation applies immediately without manual user refresh.
-    if (!applied) {
-      window.setTimeout(() => window.location.reload(), 120);
-    } else {
-      window.setTimeout(() => {
-        const combo = document.querySelector(".goog-te-combo") as HTMLSelectElement | null;
-        if (combo?.value !== nextLang) window.location.reload();
-      }, 220);
-    }
+    applyCookie(nextLang);
+    applyGoogleLanguage(nextLang);
+    // Full reload gives Google Translate clean DOM ownership.
+    window.setTimeout(() => window.location.reload(), 120);
   };
 
   return (
@@ -93,17 +80,15 @@ export default function TranslationOverlay() {
         </select>
       </div>
 
-      {/* Keep mount in DOM (not display:none) so Google can initialize combo reliably */}
       <div id="google_translate_element" className="fixed -left-[9999px] top-0 opacity-0 pointer-events-none" />
 
       <Script id="google-translate-init" strategy="afterInteractive">
         {`
           window.googleTranslateElementInit = function () {
-            if (!window.google || !window.google.translate) return;
+            if (!window.google || !window.google.translate || !window.google.translate.TranslateElement) return;
             new window.google.translate.TranslateElement({
               pageLanguage: 'en',
               includedLanguages: 'en,hi,mr,te,ta',
-              layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
               autoDisplay: false
             }, 'google_translate_element');
           };
@@ -114,18 +99,15 @@ export default function TranslationOverlay() {
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        .goog-te-banner-frame,
-        .goog-te-banner-frame.skiptranslate,
-        .goog-te-balloon-frame,
-        body > .skiptranslate,
-        #goog-gt-tt,
-        .goog-tooltip {
-          display: none !important;
-          visibility: hidden !important;
-        }
-        body { top: 0px !important; }
-        iframe.goog-te-menu-frame { z-index: 2147483647 !important; }
-      `,
+            .goog-te-banner-frame,
+            .goog-te-balloon-frame,
+            #goog-gt-tt,
+            .goog-tooltip {
+              display: none !important;
+              visibility: hidden !important;
+            }
+            body { top: 0 !important; }
+          `,
         }}
       />
     </>

@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #FDFDFD;
+  --color-surface-bright: #FFFFFF;
+  --color-surface-container-lowest: #FFFFFF;
+  --color-surface-container-low: #F8FAFC;
+  --color-surface-container: #FFFFFF;
+  --color-surface-container-high: #F1F5F9;
+  --color-surface-container-highest: #E2E8F0;
+  --color-surface-variant: #FFFFFF;
+  --color-on-surface: #1E293B;
+  --color-on-surface-variant: #64748B;
+  --color-outline-variant: #CBD5E1;
+  --color-primary: #7C3AED;
+  --color-primary-dim: #6D28D9;
+  --color-on-primary: #FFFFFF;
+  --color-on-primary-container: #F5F3FF;
+  --color-secondary-container: #EDE9FE;
+  --color-on-secondary-container: #4C1D95;
+  --color-tertiary-container: #10B981;
+  --color-tertiary: #059669;
+  --color-on-tertiary: #FFFFFF;
+  --color-error: #EF4444;
+
+  --font-manrope: var(--font-manrope), sans-serif;
+  --font-inter: var(--font-inter), sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-inter antialiased min-h-screen relative overflow-x-hidden text-base; /* text-base is 16px */
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-manrope font-bold text-slate-900;
+  }
+}
+
+@layer utilities {
+  .frost-glass {
+    @apply bg-white/70 backdrop-blur-[20px] rounded-[1.5rem] relative overflow-hidden shadow-sm border border-slate-200/50 transition-all duration-300;
+  }
+  
+  .frost-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(to bottom right, rgba(124, 58, 237, 0.1), rgba(124, 58, 237, 0.05));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+  
+  .ghost-border {
+    @apply border border-slate-200/40;
+  }
+
+  .terminal-accent-glow {
+    @apply shadow-[0_0_20px_-5px_rgba(124,58,237,0.3)];
+  }
+}
+

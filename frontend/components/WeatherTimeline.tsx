@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { CloudRain, Sun, Droplets, Loader2, ShoppingCart, MapPin, AlertCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import FrostedCard from "./FrostedCard";
+import { speak } from "@/lib/tts";
 
 type AdvisoryData = {
   task_priority?: "High" | "Medium" | "Low";
@@ -19,6 +20,7 @@ type AdvisoryData = {
 };
 
 export default function WeatherTimeline() {
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   const { lastLockDate, language } = useAppStore();
   const [advisory, setAdvisory] = useState<AdvisoryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,10 +41,9 @@ export default function WeatherTimeline() {
   useEffect(() => {
     const fetchAdvisory = async () => {
       try {
-        const res = await fetch(
-          `http://localhost:8000/api/advisory?weather=Heavy Rain Forecast 10mm&crop_stage=${currentDay}`,
-          { method: "POST" }
-        );
+        const res = await fetch(`${apiBase}/api/advisory?weather=Heavy Rain Forecast 10mm&crop_stage=${currentDay}`, {
+          method: "POST",
+        });
         const json = await res.json();
         if (json.status === "success") {
           const advisoryData: AdvisoryData = json.data;
@@ -50,17 +51,8 @@ export default function WeatherTimeline() {
 
           const voiceText = advisoryData.voice_script || advisoryData.instruction || "Advisory updated";
 
-          if (typeof window !== "undefined" && "speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(voiceText);
-            utterance.lang = speechLocale;
-            utterance.rate = 0.95;
-            window.speechSynthesis.speak(utterance);
-          }
+          speak(voiceText, { lang: speechLocale, rate: 0.95 });
 
-          await fetch(`http://localhost:8000/api/tts?text=${encodeURIComponent(voiceText)}&language=${language}`, {
-            method: "POST",
-          });
         }
         setIsLoading(false);
       } catch (e) {
@@ -70,7 +62,7 @@ export default function WeatherTimeline() {
     };
 
     fetchAdvisory();
-  }, [currentDay, language, speechLocale]);
+  }, [apiBase, currentDay, language, speechLocale]);
 
   useEffect(() => {
     if (!scrollRef.current) return;

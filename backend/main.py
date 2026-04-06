@@ -5,6 +5,8 @@ import os
 import sys
 import uuid
 import asyncio
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from typing import Any, Dict, Optional, Set, Tuple
 
@@ -22,9 +24,18 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Krishi Sakhi API")
 
+DATA_GOV_ENDPOINT = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
+DATA_GOV_API_KEY = os.getenv(
+    "DATA_GOV_API_KEY",
+    "579b464db66ec23bdd00000160dd68bef06b4e676406862bc8b0bd40",
+)
+
+frontend_origins = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")
+frontend_origins = [origin.strip() for origin in frontend_origins if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=frontend_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -162,7 +173,8 @@ class BookingController:
         drop_lng = drop.get("lng", 73.7857)
 
         route_distance_km = self.haversine_km((float(pickup_lat), float(pickup_lng)), (float(drop_lat), float(drop_lng)))
-        total_distance_with_pickup = route_distance_km * 1.1
+        # Include return leg + detours for more realistic fuel estimates.
+        total_distance_with_pickup = route_distance_km * 2.1 + 5
         fuel_price = float(payload.get("fuel_price", 95))
         truck_avg = max(float(payload.get("truck_avg", 4.5)), 1.0)
         base_driver_fee = float(payload.get("base_driver_fee", 900))
@@ -349,6 +361,8 @@ class BookingController:
             "event": "TRIP_ACTIVE",
             "order_id": order_id,
             "farmer_id": order["farmer_id"],
+            "farmer_name": order.get("farmer_name", "Farmer"),
+            "farmer_phone": order.get("farmer_phone", ""),
             "driver_id": selected_driver_id,
             "price": order["accepted_price"],
             "pickup": order["pickup"],
@@ -439,6 +453,53 @@ def _decode_data_url(data_url: str) -> Optional[bytes]:
         return None
 
 
+def _fetch_data_gov_prices(payload: Dict[str, Any]) -> Dict[str, float]:
+    if not DATA_GOV_API_KEY:
+        return {}
+
+    state = payload.get("state") or "Maharashtra"
+    district = payload.get("district") or "Nashik"
+    commodity = payload.get("crop_type") or "Onion"
+    market = payload.get("market")
+
+    params = {
+        "api-key": DATA_GOV_API_KEY,
+        "format": "json",
+        "offset": 0,
+        "limit": 50,
+        "filters[state.keyword]": state,
+        "filters[district]": district,
+        "filters[commodity]": commodity,
+    }
+    if market:
+        params["filters[market]"] = market
+
+    url = f"{DATA_GOV_ENDPOINT}?{urllib.parse.urlencode(params)}"
+    try:
+        with urllib.request.urlopen(url, timeout=6) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        records = payload.get("records", []) or []
+        price_map: Dict[str, list] = {}
+        for record in records:
+            market_name = str(record.get("market", "")).strip()
+            modal_price = record.get("modal_price") or record.get("modal_price (Rs./Quintal)")
+            if not market_name or modal_price is None:
+                continue
+            try:
+                price = float(modal_price)
+            except (TypeError, ValueError):
+                continue
+            price_map.setdefault(market_name.lower(), []).append(price)
+
+        averaged: Dict[str, float] = {}
+        for key, values in price_map.items():
+            if values:
+                averaged[key] = sum(values) / len(values)
+        return averaged
+    except Exception:
+        return {}
+
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Krishi Sakhi API Running"}
@@ -517,6 +578,29 @@ def calculate_optimal_mandi(data: Optional[dict] = None):
         {"id": 4, "name": "Mumbai Vashi Market", "lat": 19.0728, "lng": 73.0026, "current_price": 2520, "toll": 420, "labor": 410},
     ]
 
+    data_gov_prices = _fetch_data_gov_prices(payload)
+    if not data_gov_prices:
+        data_gov_prices = ai_services.estimate_mandi_prices_with_groq(
+            [m["name"] for m in mandi_list],
+            commodity=crop_type,
+            state=payload.get("state", "Maharashtra"),
+            district=payload.get("district", "Nashik"),
+        )
+
+    if data_gov_prices:
+        for mandi in mandi_list:
+            name_key = mandi["name"].lower()
+            matched = None
+            if name_key in data_gov_prices:
+                matched = data_gov_prices[name_key]
+            else:
+                for key, price in data_gov_prices.items():
+                    if key in name_key or name_key in key:
+                        matched = price
+                        break
+            if matched:
+                mandi["current_price"] = round(float(matched), 2)
+
     results = []
     base_perishability_rate = 0.01
     if "rain" in weather.lower():
@@ -536,7 +620,8 @@ def calculate_optimal_mandi(data: Optional[dict] = None):
             spoilage_rate += 0.02
 
         gross_revenue = crop_quantity * mandi["current_price"]
-        fuel_cost = (distance_km * 2 / truck_avg) * fuel_price
+        # Round-trip + detour buffer to avoid unrealistically low fuel cost.
+        fuel_cost = (distance_km * 2.2 / truck_avg) * fuel_price
         mandi_charges = mandi["toll"] + mandi["labor"]
         decay_loss = gross_revenue * spoilage_rate
         net_profit = gross_revenue - (fuel_cost + driver_fee + mandi_charges + decay_loss)
@@ -590,6 +675,16 @@ def calculate_optimal_mandi(data: Optional[dict] = None):
         "formula": "(Quantity*Price) - (Distance*Fuel) - DriverFee - MandiCharges - SpoilageLoss",
         "results": results[:3],
     }
+
+
+@app.post("/api/schemes")
+def get_personalized_schemes(data: Optional[dict] = None):
+    profile = data or {}
+    try:
+        schemes = ai_services.generate_personalized_schemes(profile)
+        return {"status": "success", "schemes": schemes}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "schemes": []}
 
 
 @app.websocket("/ws/{client_id}")

@@ -8,20 +8,7 @@ export default function VirtualField() {
   const { isFieldLocked, lockField, lockedPlan } = useAppStore();
 
   if (!lockedPlan) {
-    return (
-      <div className="relative w-full max-w-sm mx-auto aspect-[2/3] rounded-3xl overflow-hidden bg-surface-container border-2 border-outline-variant/30 flex flex-col items-center justify-center ghost-border p-6 gap-4 shadow-2xl">
-         <div className="w-24 h-24 rounded-full border-4 border-dashed border-primary/20 animate-spin flex items-center justify-center" style={{ animationDuration: '10s' }}>
-            <div className="w-16 h-16 rounded-full bg-primary/5 animate-pulse" />
-         </div>
-         <div className="text-center">
-            <h3 className="text-xl font-manrope font-bold text-outline-variant">Terminal Ready.</h3>
-            <p className="text-sm text-outline-variant/60 font-inter mt-1">Waiting for Soil Health Scan...</p>
-         </div>
-         <div className="absolute inset-0 opacity-10 pointer-events-none" 
-              style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(204,151,255,0.15) 1px, transparent 0)', backgroundSize: '24px 24px' }} 
-         />
-      </div>
-    );
+    return null;
   }
 
   const crops = [

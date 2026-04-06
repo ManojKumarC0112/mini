@@ -75,6 +75,8 @@ interface AppState {
   setFirstScanComplete: (val: boolean) => void;
 }
 
+const getInitialLanguage = (): string => "en";
+
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
@@ -114,8 +116,8 @@ export const useAppStore = create<AppState>()(
       
       district: '',
       setDistrict: (district) => set({ district }),
-      language: 'hi',
-      setLanguage: (language) => set({ language }),
+      language: getInitialLanguage(),
+      setLanguage: () => set({ language: "en" }),
 
       fieldAllocation: { wheat: 60, onion: 10, dal: 30 },
       setFieldAllocation: (alloc) => set({ fieldAllocation: alloc }),

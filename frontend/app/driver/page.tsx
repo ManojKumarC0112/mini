@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 
 export default function DriverPage() {
   const router = useRouter();
-  const { language, setLanguage, setRole, driverName, driverPhone, setDriverName, setDriverPhone } = useAppStore();
+  const { setRole, driverName, driverPhone, setDriverName, setDriverPhone } = useAppStore();
 
   useEffect(() => {
     // Ensure direct /driver navigation always enters driver experience.
@@ -33,21 +33,8 @@ export default function DriverPage() {
              </div>
           </div>
           
-          <div className="flex items-center gap-6">
-             <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                <button 
-                   onClick={() => setLanguage('hi')}
-                   className={`px-3 py-1 rounded-md text-xs font-bold transition ${language === 'hi' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}
-                >HN</button>
-                <button 
-                   onClick={() => setLanguage('en')}
-                   className={`px-3 py-1 rounded-md text-xs font-bold transition ${language === 'en' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}
-                >EN</button>
-                <button 
-                   onClick={() => setLanguage('mr')}
-                   className={`px-3 py-1 rounded-md text-xs font-bold transition ${language === 'mr' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}
-                >MR</button>
-             </div>
+          <div className="text-xs uppercase tracking-widest text-slate-400 font-bold">
+             Language via Translate
           </div>
       </div>
 

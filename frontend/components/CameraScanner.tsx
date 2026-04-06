@@ -10,6 +10,7 @@ export default function CameraScanner({
   onClose: () => void;
   onScanComplete: (data: any) => void;
 }) {
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export default function CameraScanner({
   const processWithGemini = async () => {
     setIsProcessing(true);
     try {
-      const res = await fetch("http://localhost:8000/api/ocr", {
+      const res = await fetch(`${apiBase}/api/ocr`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_data_url: capturedImage }),

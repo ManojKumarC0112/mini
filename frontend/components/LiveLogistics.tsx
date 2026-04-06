@@ -3,16 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import FrostedCard from "./FrostedCard";
-import { Truck, CheckCircle2, Navigation2, XCircle, Power } from "lucide-react";
+import { Truck, CheckCircle2, Navigation2, XCircle, Power, MapPin, Phone } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
+import type { DivIcon } from "leaflet";
 
 const MapContainer = dynamic(() => import("react-leaflet").then((mod) => mod.MapContainer), {
   ssr: false,
 });
 const TileLayer = dynamic(() => import("react-leaflet").then((mod) => mod.TileLayer), { ssr: false });
 const Marker = dynamic(() => import("react-leaflet").then((mod) => mod.Marker), { ssr: false });
+const Polyline = dynamic(() => import("react-leaflet").then((mod) => mod.Polyline), { ssr: false });
 
 type WsBookingRequest = {
   event: string;
@@ -46,11 +48,15 @@ export default function LiveLogistics() {
   const [driverOnline, setDriverOnline] = useState(role === "Driver");
   const [systemMessage, setSystemMessage] = useState("");
   const [acceptedDriver, setAcceptedDriver] = useState<{ name: string; phone: string } | null>(null);
+  const [acceptedFarmer, setAcceptedFarmer] = useState<{ name: string; phone: string } | null>(null);
   const [tripMeta, setTripMeta] = useState<{ distance_km?: number; fuel_cost_estimate?: number; mandi_name?: string } | null>(null);
   const [counterByOrder, setCounterByOrder] = useState<Record<string, number>>({});
   const [driverActionByOrder, setDriverActionByOrder] = useState<Record<string, "idle" | "countered" | "accepted">>({});
+  const [counterReasonByOrder, setCounterReasonByOrder] = useState<Record<string, string>>({});
+  const [counterNoteByOrder, setCounterNoteByOrder] = useState<Record<string, string>>({});
   const [liveMapPoint, setLiveMapPoint] = useState<[number, number]>([19.9975, 73.7898]);
   const watchIdRef = useRef<number | null>(null);
+  const [truckIcon, setTruckIcon] = useState<DivIcon | null>(null);
 
   const mapCenter = useMemo<[number, number]>(() => {
     if (location && Array.isArray(location) && location.length === 2) return [location[0], location[1]];
@@ -61,6 +67,32 @@ export default function LiveLogistics() {
     if (role === "Driver") setDriverOnline(true);
   }, [role]);
 
+  const getApiBase = () => {
+    if (typeof window === "undefined") return "http://localhost:8000";
+    return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  };
+
+  const buildWsUrl = () => {
+    const base = getApiBase();
+    if (base.startsWith("https://")) return base.replace("https://", "wss://");
+    if (base.startsWith("http://")) return base.replace("http://", "ws://");
+    return `ws://${base}`;
+  };
+
+  const sendRegister = (ws: WebSocket) => {
+    const locationPayload = location ? { lat: location[0], lng: location[1] } : null;
+    ws.send(
+      JSON.stringify({
+        event: "REGISTER",
+        role,
+        location: locationPayload,
+        is_online: role === "Driver" ? driverOnline : false,
+        name: role === "Driver" ? driverName : userName,
+        phone: role === "Driver" ? driverPhone : userPhone,
+      })
+    );
+  };
+
   useEffect(() => {
     const initLeaflet = async () => {
       const leaflet = (await import("leaflet")).default;
@@ -70,26 +102,24 @@ export default function LiveLogistics() {
         iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
         shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
       });
+
+      const icon = leaflet.divIcon({
+        html: `<div style="background:#16a34a;color:white;border-radius:999px;padding:6px 8px;font-size:16px;box-shadow:0 6px 16px rgba(22,163,74,0.35);">🚚</div>`,
+        className: "",
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+      setTruckIcon(icon);
     };
     initLeaflet();
   }, []);
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/${wsClientId}`);
+    const ws = new WebSocket(`${buildWsUrl()}/ws/${wsClientId}`);
 
     ws.onopen = () => {
       setIsSocketConnected(true);
-      const locationPayload = location ? { lat: location[0], lng: location[1] } : null;
-      ws.send(
-        JSON.stringify({
-          event: "REGISTER",
-          role,
-          location: locationPayload,
-          is_online: role === "Driver" ? driverOnline : false,
-          name: role === "Driver" ? driverName : userName,
-          phone: role === "Driver" ? driverPhone : userPhone,
-        })
-      );
+      sendRegister(ws);
       setSystemMessage(role === "Driver" ? "Driver socket connected." : "Farmer socket connected.");
     };
 
@@ -103,7 +133,13 @@ export default function LiveLogistics() {
     };
 
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      let data: any;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        setSystemMessage("Received invalid message from server.");
+        return;
+      }
 
       if (role === "Driver" && (data.event === "NEW_ORDER_AVAILABLE" || data.event === "NEW_BOOKING_REQUEST")) {
         setActiveRequests((prev) => {
@@ -149,6 +185,12 @@ export default function LiveLogistics() {
             phone: data.driver_phone || "N/A",
           });
         }
+        if (data.farmer_name || data.farmer_phone) {
+          setAcceptedFarmer({
+            name: data.farmer_name || "Farmer",
+            phone: data.farmer_phone || "N/A",
+          });
+        }
         if (data.distance_km || data.fuel_cost_estimate || data.mandi_name) {
           setTripMeta({
             distance_km: data.distance_km,
@@ -173,7 +215,12 @@ export default function LiveLogistics() {
 
     setSocket(ws);
     return () => ws.close();
-  }, [role, wsClientId, location, driverOnline, driverName, driverPhone, userName, userPhone]);
+  }, [role, wsClientId]);
+
+  useEffect(() => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    sendRegister(socket);
+  }, [socket, role, driverOnline, driverName, driverPhone, userName, userPhone, location]);
 
   useEffect(() => {
     if (role !== "Driver" || !driverOnline || !socket) return;
@@ -246,15 +293,19 @@ export default function LiveLogistics() {
   const counterOffer = (req: WsBookingRequest) => {
     if (!socket) return;
     const proposed = counterByOrder[req.order_id] ?? req.details.price;
+    const reason = counterReasonByOrder[req.order_id] || "Fuel cost";
+    const note = counterNoteByOrder[req.order_id] || "";
     socket.send(
       JSON.stringify({
         event: "COUNTER_BID",
         order_id: req.order_id,
         price: proposed,
+        reason,
+        note,
       })
     );
     setDriverActionByOrder((prev) => ({ ...prev, [req.order_id]: "countered" }));
-    setSystemMessage(`Counter offer sent for ${req.details.farmer_name}: Rs ${Math.round(proposed)}`);
+    setSystemMessage(`Counter offer sent for ${req.details.farmer_name}: Rs ${Math.round(proposed)} (${reason})`);
   };
 
   const declineBooking = (req: WsBookingRequest) => {
@@ -310,7 +361,12 @@ export default function LiveLogistics() {
       <MapContainer center={mapCenter} zoom={11} style={{ height: "100%", width: "100%" }} zoomControl={false}>
         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
         <Marker position={mapCenter} />
-        {bookingStatus === "ACCEPTED" && <Marker position={[mapCenter[0] + 0.02, mapCenter[1] + 0.02]} opacity={0.8} />}
+        {bookingStatus === "ACCEPTED" && (
+          <>
+            <Marker position={[mapCenter[0] + 0.02, mapCenter[1] + 0.02]} opacity={0.8} icon={truckIcon ?? undefined} />
+            <Polyline positions={[mapCenter, [mapCenter[0] + 0.02, mapCenter[1] + 0.02]]} pathOptions={{ color: "#22c55e", weight: 3 }} />
+          </>
+        )}
       </MapContainer>
     </div>
   );
@@ -377,18 +433,26 @@ export default function LiveLogistics() {
                 <span className="text-xs text-slate-700 flex items-center gap-1">
                   <Navigation2 size={12} /> Driver confirmed
                 </span>
-                {acceptedDriver && (
-                  <span className="block text-xs mt-1 text-slate-700">
-                    {acceptedDriver.name} | {acceptedDriver.phone}
-                  </span>
-                )}
-                {tripMeta && (
-                  <span className="block text-xs mt-1 text-slate-700">
-                    {tripMeta.mandi_name || "Mandi"} | {tripMeta.distance_km ?? "-"} km | Fuel est Rs{" "}
-                    {Math.round(tripMeta.fuel_cost_estimate || 0)}
-                  </span>
-                )}
               </div>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 text-xs text-slate-700">
+              {acceptedDriver && (
+                <div className="flex items-center justify-between bg-white/80 rounded-lg px-3 py-2 border border-emerald-100">
+                  <span className="font-semibold">{acceptedDriver.name}</span>
+                  <span className="flex items-center gap-2">
+                    <Phone size={12} /> {acceptedDriver.phone}
+                  </span>
+                </div>
+              )}
+              {tripMeta && (
+                <div className="flex items-center justify-between bg-white/80 rounded-lg px-3 py-2 border border-emerald-100">
+                  <span className="flex items-center gap-2">
+                    <MapPin size={12} /> {tripMeta.mandi_name || "Mandi"}
+                  </span>
+                  <span>{tripMeta.distance_km ?? "-"} km</span>
+                  <span>Fuel est Rs {Math.round(tripMeta.fuel_cost_estimate || 0)}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -400,6 +464,27 @@ export default function LiveLogistics() {
   if (role === "Driver") {
     return (
       <div className="w-full max-w-md mx-auto mt-4 space-y-4">
+        {bookingStatus === "ACCEPTED" && (
+          <FrostedCard className="border-emerald-200 bg-emerald-50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+                <Truck size={18} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-emerald-800">Offer accepted by farmer</p>
+                <p className="text-xs text-emerald-700">Proceed to pickup and keep status online.</p>
+              </div>
+            </div>
+            {acceptedFarmer && (
+              <div className="mt-3 text-xs text-emerald-700 flex items-center justify-between">
+                <span>{acceptedFarmer.name}</span>
+                <span className="flex items-center gap-2">
+                  <Phone size={12} /> {acceptedFarmer.phone}
+                </span>
+              </div>
+            )}
+          </FrostedCard>
+        )}
         <FrostedCard className="border-emerald-200 bg-white">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -468,6 +553,42 @@ export default function LiveLogistics() {
                   </div>
 
                   <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                        Counter Reason
+                      </label>
+                      <select
+                        value={counterReasonByOrder[req.order_id] || "Fuel cost"}
+                        onChange={(e) =>
+                          setCounterReasonByOrder((prev) => ({ ...prev, [req.order_id]: e.target.value }))
+                        }
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700"
+                      >
+                        {[
+                          "Fuel cost",
+                          "Distance too long",
+                          "Night travel risk",
+                          "Heavy load",
+                          "Return load needed",
+                          "Other",
+                        ].map((reason) => (
+                          <option key={reason} value={reason}>
+                            {reason}
+                          </option>
+                        ))}
+                      </select>
+                      {counterReasonByOrder[req.order_id] === "Other" && (
+                        <input
+                          type="text"
+                          placeholder="Add a short reason"
+                          value={counterNoteByOrder[req.order_id] || ""}
+                          onChange={(e) =>
+                            setCounterNoteByOrder((prev) => ({ ...prev, [req.order_id]: e.target.value }))
+                          }
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                        />
+                      )}
+                    </div>
                     <div className="w-full">
                       <div className="flex justify-between mb-1">
                         <span className="text-xs text-slate-600">Drag to counter-offer:</span>

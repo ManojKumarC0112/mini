@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import FrostedCard from "./FrostedCard";
 import { ArrowRight, MapPin, Search, Loader2 } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
+import { speak } from "@/lib/tts";
 
 type SearchResult = {
   display_name: string;
@@ -20,9 +21,11 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
   const [address, setAddress] = useState("");
   const [index, setIndex] = useState(0);
   const [isLocating, setIsLocating] = useState(false);
-  const { setLocation, setUserId, setUserName, setUserPhone, language, setDistrict } = useAppStore();
+  const { setLocation, setUserId, setUserName, setUserPhone, setDistrict } = useAppStore();
+  const language = "en";
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
   const steps: SpotlightStep[] = useMemo(() => {
     if (language === "hi") {
@@ -49,34 +52,21 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
     ];
   }, [language]);
 
-  const speakStep = useCallback(async (text: string) => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang =
+  const speakStep = useCallback(
+    async (text: string) => {
+      const lang =
         language === "hi" ? "hi-IN" : language === "mr" ? "mr-IN" : language === "te" ? "te-IN" : language === "ta" ? "ta-IN" : "en-IN";
-      utterance.rate = 0.95;
-      window.speechSynthesis.speak(utterance);
-    }
-  }, [language]);
-
-  const triggerSarvamAudio = useCallback(async (text: string) => {
-    try {
-      await fetch(`http://localhost:8000/api/tts?text=${encodeURIComponent(text)}&language=${language}`, {
-        method: "POST",
-      });
-    } catch (e) {
-      console.error("Sarvam TTS Fetch Error:", e);
-    }
-  }, [language]);
+      speak(text, { lang, rate: 0.95 });
+    },
+    [language]
+  );
 
   useEffect(() => {
     const step = steps[index];
     if (step?.content) {
       speakStep(step.content);
-      triggerSarvamAudio(step.content);
     }
-  }, [index, steps, speakStep, triggerSarvamAudio]);
+  }, [index, steps, speakStep]);
 
   const autoDetectLocation = () => {
     setIsLocating(true);
@@ -131,7 +121,7 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
     setUserName(name);
     setUserPhone(phone);
     try {
-      await fetch(`http://localhost:8000/api/register`, {
+      await fetch(`${apiBase}/api/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, phone, address }),
@@ -153,7 +143,6 @@ export default function OnboardingForm({ onComplete }: { onComplete: () => void 
           setIndex(i);
           if (steps[i]) {
             speakStep(steps[i].content);
-            triggerSarvamAudio(steps[i].content);
           }
         }}
       />

@@ -103,6 +103,97 @@ GROQ_FALLBACK = {
 }
 
 
+def estimate_mandi_prices_with_groq(markets, commodity: str, state: str, district: str):
+    if not groq_client:
+        return {}
+    try:
+        prompt = f"""
+You are a mandi price estimator.
+State: {state}
+District: {district}
+Commodity: {commodity}
+
+Estimate realistic modal prices (Rs/quintal) for these markets:
+{json.dumps(markets)}
+
+Return ONLY JSON in this format:
+{{
+  "prices": {{
+    "Lasalgaon Mandi": 2400,
+    "Nashik APMC": 2100
+  }}
+}}
+"""
+        chat_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+        )
+        parsed = _extract_json_payload(chat_completion.choices[0].message.content)
+        prices = parsed.get("prices", {})
+        if isinstance(prices, dict):
+            return {str(k).lower(): float(v) for k, v in prices.items() if v is not None}
+    except Exception as err:
+        print(f"[Groq Mandi Price] API failed, using fallback: {err}")
+    return {}
+
+
+def generate_personalized_schemes(profile: Dict[str, Any]):
+    if groq_client:
+        try:
+            prompt = f"""
+You are an agriculture scheme assistant for India.
+Farmer profile: {json.dumps(profile)}
+
+Suggest 3 schemes the farmer is likely eligible for.
+Return ONLY JSON:
+{{
+  "schemes": [
+    {{
+      "name": "Scheme name",
+      "benefit": "Short benefit",
+      "why": "Why this farmer fits",
+      "next_step": "Action the farmer should take"
+    }}
+  ]
+}}
+"""
+            chat_completion = groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="llama-3.3-70b-versatile",
+                temperature=0.2,
+            )
+            parsed = _extract_json_payload(chat_completion.choices[0].message.content)
+            schemes = parsed.get("schemes", [])
+            if isinstance(schemes, list):
+                return schemes
+        except Exception as err:
+            print(f"[Groq Schemes] API failed, using fallback: {err}")
+
+    # Deterministic fallback for demo mode.
+    crop = profile.get("crop_type", "Onion")
+    district = profile.get("district", "Nashik")
+    return [
+        {
+            "name": "PM-KISAN",
+            "benefit": "Direct income support of Rs 6,000/year",
+            "why": f"Active farmer in {district} cultivating {crop}",
+            "next_step": "Verify Aadhaar + land records on PM-KISAN portal",
+        },
+        {
+            "name": "Soil Health Card Scheme",
+            "benefit": "Free soil testing + nutrient advisory",
+            "why": "Recent OCR scan suggests soil-driven planning",
+            "next_step": "Submit nearest KVK visit request",
+        },
+        {
+            "name": "Pradhan Mantri Fasal Bima Yojana",
+            "benefit": "Crop insurance against weather risk",
+            "why": "Rainy forecast indicates elevated risk",
+            "next_step": "Enroll via local bank or CSC center",
+        },
+    ]
+
 def analyze_mandi_risks_with_groq(mandis, crop_type: str, weather_text: str):
     if groq_client:
         try:

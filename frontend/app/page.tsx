@@ -5,11 +5,10 @@ import FrostedCard from "@/components/FrostedCard";
 import { motion } from "framer-motion";
 import { Tractor, Truck, BarChart3, Sprout } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 
 export default function RoleSelection() {
   const router = useRouter();
-  const { setRole, setPhase, language, setLanguage, hydrated } = useAppStore();
+  const { setRole, setPhase, hydrated } = useAppStore();
 
   if (!hydrated) return null;
 
@@ -20,6 +19,8 @@ export default function RoleSelection() {
       router.push('/farmer');
     } else if (role === 'Driver') {
       router.push('/driver');
+    } else if (role === 'Admin') {
+      router.push('/admin');
     }
   };
 
@@ -40,7 +41,7 @@ export default function RoleSelection() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <Sprout className="text-emerald-600" size={32} />
-              <span className="font-manrope font-bold text-emerald-900 tracking-widest text-sm uppercase">Annadata-OS</span>
+              <span className="font-manrope font-bold text-emerald-900 tracking-widest text-sm uppercase">Krishi Sakhi</span>
             </div>
             <h1 className="text-6xl md:text-8xl font-manrope font-bold text-slate-900 tracking-tighter leading-[0.9]">
               Digital<br /><span className="text-violet-600 italic">Village.</span>
@@ -50,15 +51,8 @@ export default function RoleSelection() {
             </p>
           </div>
 
-          <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200">
-             <button 
-                onClick={() => setLanguage('hi')}
-                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${language === 'hi' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-             >HINDI</button>
-             <button 
-                onClick={() => setLanguage('en')}
-                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${language === 'en' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-             >ENGLISH</button>
+          <div className="text-xs uppercase tracking-widest text-slate-400 font-bold">
+            Language via Translate
           </div>
         </div>
         
@@ -95,15 +89,16 @@ export default function RoleSelection() {
 
             <FrostedCard 
               onClick={() => handleRoleSelect("Admin")}
-              className="group cursor-pointer flex flex-col justify-center p-10 opacity-60 hover:opacity-100 transition-all border-slate-200 grayscale hover:grayscale-0"
+              className="group cursor-pointer flex flex-col justify-center p-10 hover:scale-[1.02] hover:shadow-xl transition-all border-slate-200 hover:bg-slate-50/40"
             >
                 <div className="flex items-center gap-6">
                   <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400">
                     <BarChart3 size={24} />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold font-manrope text-slate-400">Admin.</h2>
-                    <p className="text-slate-300 text-xs mt-1">Market analytics node</p>
+                    <h2 className="text-2xl font-bold font-manrope text-slate-900">Admin.</h2>
+                    <p className="text-slate-500 text-xs mt-1">Market analytics node</p>
+                    <p className="text-emerald-600 text-[10px] mt-2 uppercase tracking-widest">Live</p>
                   </div>
                 </div>
             </FrostedCard>

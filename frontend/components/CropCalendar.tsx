@@ -18,6 +18,7 @@ export default function CropCalendar() {
   const [calendarData, setCalendarData] = useState<CalendarEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [totalSaved, setTotalSaved] = useState(0);
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
   useEffect(() => {
     const fetchAdvisory = async () => {
@@ -31,7 +32,7 @@ export default function CropCalendar() {
           alert: false,
         }));
 
-        const res = await fetch("http://localhost:8000/api/advisory", { method: "POST" });
+        const res = await fetch(`${apiBase}/api/advisory`, { method: "POST" });
         const json = await res.json();
 
         if (json.status === "success" && json.data) {
@@ -79,18 +80,23 @@ export default function CropCalendar() {
     };
 
     fetchAdvisory();
-  }, []);
+  }, [apiBase]);
 
   return (
     <div className="w-full flex flex-col gap-6">
-      <div className="flex justify-between items-end mb-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-2">
         <div>
-          <h2 className="text-4xl font-manrope font-bold text-white tracking-tight">Weather Guard.</h2>
-          <p className="text-on-surface-variant font-inter mt-1">15-day intelligent advisory.</p>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold uppercase tracking-widest">
+            Weather Guard
+          </div>
+          <h2 className="text-3xl md:text-4xl font-manrope font-black text-slate-900 tracking-tight mt-3">
+            15‑Day Crop Calendar
+          </h2>
+          <p className="text-slate-600 font-inter mt-2">Daily actions tuned to rainfall, pests, and soil signals.</p>
         </div>
-        <div className="text-right">
-          <p className="text-sm text-outline-variant">Projected Savings</p>
-          <p className="text-3xl font-bold text-tertiary-container border-b-2 border-tertiary/20">
+        <div className="text-left md:text-right">
+          <p className="text-xs uppercase tracking-widest text-slate-400 font-bold">Projected Savings</p>
+          <p className="text-3xl font-black text-emerald-700">
             Rs {totalSaved}
           </p>
         </div>
@@ -111,26 +117,26 @@ export default function CropCalendar() {
               transition={{ delay: idx * 0.05 }}
             >
               <FrostedCard
-                className={`p-4 h-48 flex flex-col justify-between ${
+                className={`p-4 h-48 flex flex-col justify-between border ${
                   entry.alert
-                    ? "border-tertiary-container/40 bg-tertiary-container/5 shadow-[0_0_20px_rgba(204,151,255,0.1)]"
-                    : "ghost-border"
+                    ? "border-amber-200 bg-amber-50/70 shadow-[0_0_20px_rgba(245,158,11,0.12)]"
+                    : "border-slate-200 bg-white/80"
                 }`}
               >
                 <div className="flex justify-between items-start">
-                  <span className="font-bold text-lg text-outline-variant">Day {entry.day}</span>
+                  <span className="font-bold text-lg text-slate-700">Day {entry.day}</span>
                   {entry.icon}
                 </div>
                 <div>
                   <p
                     className={`font-bold font-manrope text-sm leading-tight ${
-                      entry.alert ? "text-tertiary-container" : "text-on-surface"
+                      entry.alert ? "text-amber-700" : "text-slate-800"
                     }`}
                   >
                     {entry.action}
                   </p>
                   {entry.costSaved > 0 && (
-                    <p className="text-xs text-tertiary mt-2">Rs {entry.costSaved} saved on fuel.</p>
+                    <p className="text-xs text-emerald-700 mt-2">Rs {entry.costSaved} saved on fuel.</p>
                   )}
                 </div>
               </FrostedCard>

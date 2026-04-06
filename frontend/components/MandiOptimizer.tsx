@@ -23,7 +23,8 @@ type MandiRow = {
 };
 
 export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: MandiRow) => void }) {
-  const { location } = useAppStore();
+  const { location, lockedPlan, district } = useAppStore();
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   const [selectedMandi, setSelectedMandi] = useState<number | null>(null);
   const [rows, setRows] = useState<MandiRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -34,7 +35,7 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
       setIsLoading(true);
       setErrorMsg("");
       try {
-        const res = await fetch("http://localhost:8000/api/mandi-profit", {
+        const res = await fetch(`${apiBase}/api/mandi-profit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -43,7 +44,9 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
             truck_avg: 4.5,
             driver_fee: 1500,
             weather: "Rainy",
-            crop_type: "Onion",
+            crop_type: lockedPlan?.safe_crop?.name || lockedPlan?.jackpot_crop?.name || lockedPlan?.healer_crop?.name || "Onion",
+            state: "Maharashtra",
+            district: district || "Nashik",
             farmer_lat: location?.[0] ?? 20.0059,
             farmer_lng: location?.[1] ?? 73.7898,
           }),
@@ -62,7 +65,7 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
     };
 
     fetchMandis();
-  }, [location]);
+  }, [apiBase, location]);
 
   const annotated = useMemo(() => {
     return rows.map((row, idx) => {

@@ -47,10 +47,9 @@ export default function CinematicSpotlight({
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  const index =
-    typeof currentIndex === "number" && currentIndex >= 0 && currentIndex < steps.length
-      ? currentIndex
-      : internalIndex;
+  const isControlled =
+    typeof currentIndex === "number" && currentIndex >= 0 && currentIndex < steps.length;
+  const index = isControlled ? (currentIndex as number) : internalIndex;
   const currentStep = steps[index];
   const mobileTooltipTop = Math.max(
     12,
@@ -116,7 +115,11 @@ export default function CinematicSpotlight({
 
   const nextStep = () => {
     if (index < steps.length - 1) {
-      setInternalIndex(index + 1);
+      if (isControlled) {
+        onStepChange?.(index + 1);
+      } else {
+        setInternalIndex(index + 1);
+      }
     } else {
       setIsVisible(false);
       setTimeout(onComplete, 500);

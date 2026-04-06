@@ -40,6 +40,10 @@ interface AppState {
     travel_hours: number;
     market_price: number;
     net_profit: number;
+    trend_recommendation?: "SELL_NOW" | "WAIT_2_DAYS";
+    trend_expected_change_percent?: number;
+    trend_reason?: string;
+    trend_points?: number[];
   } | null;
   setSelectedMandi: (mandi: {
     mandi_id: number;
@@ -48,6 +52,10 @@ interface AppState {
     travel_hours: number;
     market_price: number;
     net_profit: number;
+    trend_recommendation?: "SELL_NOW" | "WAIT_2_DAYS";
+    trend_expected_change_percent?: number;
+    trend_reason?: string;
+    trend_points?: number[];
   } | null) => void;
   
   // Field Data

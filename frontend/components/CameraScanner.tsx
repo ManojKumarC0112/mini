@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, X, Check, Loader2 } from "lucide-react";
+import { Camera, X, Check, Loader2, Upload } from "lucide-react";
 
 export default function CameraScanner({
   onClose,
@@ -13,6 +13,7 @@ export default function CameraScanner({
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -50,7 +51,21 @@ export default function CameraScanner({
     }
   };
 
+  const handleFileUpload = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      if (result) setCapturedImage(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const processWithGemini = async () => {
+    if (!capturedImage) {
+      setErrorMsg("Please capture or upload an image first.");
+      return;
+    }
     setIsProcessing(true);
     try {
       const res = await fetch(`${apiBase}/api/ocr`, {
@@ -109,14 +124,31 @@ export default function CameraScanner({
         )}
       </div>
 
-      <div className="mt-8 w-full max-w-sm flex justify-center">
+      <div className="mt-8 w-full max-w-sm flex flex-col items-center gap-3">
         {!capturedImage ? (
-          <button
-            onClick={capturePhoto}
-            className="w-16 h-16 rounded-full bg-white border-4 border-primary flex items-center justify-center shadow-[0_0_20px_rgba(204,151,255,0.5)] active:scale-95 transition"
-          >
-            <Camera className="text-surface font-bold" />
-          </button>
+          <>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={capturePhoto}
+                className="w-16 h-16 rounded-full bg-white border-4 border-primary flex items-center justify-center shadow-[0_0_20px_rgba(204,151,255,0.5)] active:scale-95 transition"
+              >
+                <Camera className="text-surface font-bold" />
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-3 rounded-xl border border-slate-200 text-white font-bold flex items-center gap-2 hover:bg-white/10 transition"
+              >
+                <Upload size={18} /> Upload Image
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => handleFileUpload(e.target.files?.[0] ?? null)}
+            />
+          </>
         ) : (
           <div className="flex gap-4 w-full">
             <button

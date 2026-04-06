@@ -6,7 +6,7 @@ import VirtualField from "@/components/VirtualField";
 import MicButton from "@/components/MicButton";
 import LiveLogistics from "@/components/LiveLogistics";
 import { motion, AnimatePresence } from "framer-motion";
-import { ScanLine, BarChart3, ArrowLeft, Store } from "lucide-react";
+import { ScanLine, BarChart3, ArrowLeft, Store, Mic, X, Loader2 } from "lucide-react";
 import OnboardingForm from "@/components/OnboardingForm";
 import MandiOptimizer from "@/components/MandiOptimizer";
 import CinematicSpotlight, { SpotlightStep } from "@/components/CinematicSpotlight";
@@ -47,12 +47,27 @@ export default function FarmerPage() {
     selectedMandi,
     lastLockDate,
     setLastLockDate,
+    district,
+    location,
   } = useAppStore();
 
   const [isScanning, setIsScanning] = useState(false);
   const [spotlightIndex, setSpotlightIndex] = useState(0);
   const [scanSummary, setScanSummary] = useState<ScanResult | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceResponse, setVoiceResponse] = useState("");
+  const [voiceError, setVoiceError] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [mandiContext, setMandiContext] = useState<Record<string, number>>({});
   const spokenPhaseRef = useRef("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingMimeRef = useRef<string>("audio/webm");
+  const recordingExtRef = useRef<string>("webm");
+  const stopTimerRef = useRef<number | null>(null);
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
   useEffect(() => {
     if (!hydrated) return;
@@ -97,6 +112,186 @@ export default function FarmerPage() {
   };
 
   useEffect(() => {
+    if (!voiceOpen) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {}
+      }
+      if (stopTimerRef.current) {
+        window.clearTimeout(stopTimerRef.current);
+        stopTimerRef.current = null;
+      }
+      setIsRecording(false);
+    }
+  }, [voiceOpen]);
+
+  const fetchMandiContext = async () => {
+    if (!location) return;
+    try {
+      const res = await fetch(`${apiBase}/api/mandi-profit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          crop_quantity: 20,
+          fuel_price: 95,
+          truck_avg: 4.5,
+          driver_fee: 1500,
+          weather: "Clear",
+          crop_type: lockedPlan?.safe_crop?.name || "Onion",
+          state: "Maharashtra",
+          district: district || "Nashik",
+          farmer_lat: location?.[0] ?? 20.0059,
+          farmer_lng: location?.[1] ?? 73.7898,
+        }),
+      });
+      const json = await res.json();
+      if (json.status === "success" && Array.isArray(json.results)) {
+        const mapped: Record<string, number> = {};
+        json.results.forEach((row: any) => {
+          if (row?.mandi_name && row?.market_price) {
+            mapped[row.mandi_name] = row.market_price;
+          }
+        });
+        setMandiContext(mapped);
+      }
+    } catch {}
+  };
+
+  const transcribeAudio = async (blob: Blob) => {
+    setIsThinking(true);
+    setVoiceError("");
+    try {
+      const form = new FormData();
+      form.append("file", blob, `voice.${recordingExtRef.current}`);
+      const res = await fetch(`${apiBase}/api/stt?language=en`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setVoiceError(text || "STT request failed.");
+        setIsThinking(false);
+        return;
+      }
+      const json = await res.json();
+      if (json.status === "success") {
+        const text = (json.text || "").trim();
+        if (!text) {
+          setVoiceError("No speech detected. Please try again.");
+          setIsThinking(false);
+          return;
+        }
+        setVoiceTranscript(text);
+        await submitVoiceQuery(text);
+      } else {
+        setVoiceError(json.message || "Could not transcribe audio.");
+      }
+    } catch {
+      setVoiceError("Network error while transcribing audio.");
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const startRecording = async () => {
+    setVoiceError("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceError("Voice input not supported on this device. Type your question below.");
+      return;
+    }
+    if (typeof window === "undefined" || !(window as any).MediaRecorder) {
+      setVoiceError("Voice recording is not supported in this browser. Type your question below.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      let chosenType = "";
+      for (const type of preferredTypes) {
+        if ((window as any).MediaRecorder.isTypeSupported?.(type)) {
+          chosenType = type;
+          break;
+        }
+      }
+      recordingMimeRef.current = chosenType || "audio/webm";
+      recordingExtRef.current = recordingMimeRef.current.includes("mp4") ? "mp4" : "webm";
+      const recorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recordingMimeRef.current });
+        if (blob.size < 800) {
+          setVoiceError("No audio captured. Please try again.");
+          return;
+        }
+        transcribeAudio(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      recorder.start(250);
+      stopTimerRef.current = window.setTimeout(() => {
+        stopRecording();
+      }, 5000);
+    } catch {
+      setVoiceError("Microphone access denied. Please allow mic permission or type your question.");
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.requestData();
+      } catch {}
+      mediaRecorderRef.current.stop();
+    }
+    if (stopTimerRef.current) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+    setIsRecording(false);
+  };
+
+  const submitVoiceQuery = async (overrideText?: string) => {
+    const question = (overrideText ?? voiceTranscript).trim();
+    if (!question) {
+      setVoiceError("Please ask a question first.");
+      return;
+    }
+    setVoiceError("");
+    setIsThinking(true);
+    try {
+      const res = await fetch(`${apiBase}/api/advisory`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_query: question,
+          crop_type: lockedPlan?.safe_crop?.name || lockedPlan?.jackpot_crop?.name || lockedPlan?.healer_crop?.name,
+          district: district || "Nashik",
+          npk: scanSummary?.npk,
+          mandi_prices: mandiContext,
+          allocation: scanSummary?.allocation,
+        }),
+      });
+      const json = await res.json();
+      if (json.status === "success") {
+        setVoiceResponse(json.data?.answer || "Here is my recommendation.");
+        if (json.data?.voice_script) triggerTTS(json.data.voice_script);
+      } else {
+        setVoiceError(json.message || "Could not get advisory.");
+      }
+    } catch {
+      setVoiceError("Network error while contacting advisory service.");
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  useEffect(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
     if (!["growing", "selling", "logistics"].includes(phase)) return;
 
@@ -120,7 +315,14 @@ export default function FarmerPage() {
     } else if (phase === "selling") {
       if (language === "hi") summary = "यह Market phase है। मंडियों की तुलना करें और सबसे अधिक नेट प्रॉफिट वाला विकल्प चुनें।";
       else if (language === "mr") summary = "हा Market phase आहे. मंड्यांची तुलना करा आणि सर्वाधिक नेट प्रॉफिट असलेला पर्याय निवडा.";
-      else summary = "This is the Market phase. Compare mandis and pick the option with the highest net profit.";
+      else {
+        summary = "This is the Market phase. Compare mandis and pick the option with the highest net profit.";
+        if (selectedMandi?.trend_recommendation === "WAIT_2_DAYS") {
+          const pct = Math.round(selectedMandi.trend_expected_change_percent ?? 0);
+          const name = userName || "Ramu Kaka";
+          summary += ` ${name}, if you wait 2 days, profit might increase by ${pct}%.`;
+        }
+      }
     } else if (phase === "logistics") {
       if (language === "hi") {
         summary = `यह Logistics phase है। ${selectedMandi?.mandi_name ? `${selectedMandi.mandi_name} के लिए ` : ""}आप ड्राइवर बुक कर सकते हैं और लाइव ट्रिप अपडेट देख सकते हैं।`;
@@ -271,7 +473,12 @@ export default function FarmerPage() {
                     </div>
 
                     <div className="mic-widget w-full flex justify-center py-3">
-                      <MicButton onClick={() => console.log("Mic requested")} />
+                      <MicButton
+                        onClick={() => {
+                          setVoiceOpen(true);
+                          fetchMandiContext();
+                        }}
+                      />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
@@ -287,6 +494,8 @@ export default function FarmerPage() {
                     </div>
 
                     {scannerOpen && <CameraScanner onClose={() => setIsScanning(false)} onScanComplete={handleScanComplete} />}
+
+
 
                     {scanSummary?.npk && (
                       <FrostedCard className="p-5 md:p-6 bg-white/80 border-emerald-100">
@@ -386,6 +595,16 @@ export default function FarmerPage() {
                     Follow the advisory below, review rainfall risk, and keep your irrigation aligned with the 120‑day plan.
                   </p>
                 </FrostedCard>
+
+                <div className="flex justify-center">
+                  <MicButton
+                    onClick={() => {
+                      setVoiceOpen(true);
+                      fetchMandiContext();
+                    }}
+                  />
+                </div>
+
                 <GrowingPhaseDashboard />
                 <div className="growing-weather">
                   <WeatherTimeline />
@@ -470,6 +689,73 @@ export default function FarmerPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {voiceOpen && (
+            <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="w-full max-w-xl bg-white rounded-2xl p-6 shadow-2xl border border-slate-200">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">Ask the Profit Engine</h3>
+                    <p className="text-xs text-slate-500">Planning assistant for crop decisions.</p>
+                  </div>
+                  <button
+                    onClick={() => setVoiceOpen(false)}
+                    className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`px-4 py-3 rounded-xl font-bold flex items-center gap-2 ${
+                      isRecording ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    <Mic size={16} /> {isRecording ? "Recording... Tap to Stop" : "Start Recording (5s)"}
+                  </button>
+                  <button
+                    onClick={submitVoiceQuery}
+                    disabled={isThinking}
+                    className="px-4 py-3 rounded-xl font-bold bg-slate-900 text-white disabled:opacity-50"
+                  >
+                    {isThinking ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={16} className="animate-spin" /> Thinking...
+                      </span>
+                    ) : (
+                      "Ask"
+                    )}
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Your question
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={voiceTranscript}
+                    onChange={(e) => setVoiceTranscript(e.target.value)}
+                    placeholder="Example: Why not grow more chilli this season?"
+                    className="mt-2 w-full rounded-xl border border-slate-200 p-3 text-sm"
+                  />
+                </div>
+
+                {voiceError && <p className="mt-3 text-xs text-rose-600">{voiceError}</p>}
+                {voiceResponse && (
+                  <div className="mt-4 rounded-xl bg-emerald-50 border border-emerald-100 p-4 text-sm text-emerald-900">
+                    {voiceResponse}
+                  </div>
+                )}
+
+                <div className="mt-4 text-[11px] text-slate-500">
+                  Context used: soil NPK, current allocation, and mandi prices (if available).
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </main>

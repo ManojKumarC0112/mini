@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Dict, Optional, Set, Tuple
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure local imports work correctly during uvicorn reload
@@ -523,9 +523,28 @@ async def process_ocr_scan(data: Optional[dict] = None):
 
 
 @app.post("/api/advisory")
-def get_weather_advisory(weather: str = "Rainy for next 48 hours", crop_stage: int = 45):
+def get_weather_advisory(
+    data: Optional[dict] = None,
+    weather: str = "Rainy for next 48 hours",
+    crop_stage: int = 45,
+    user_query: Optional[str] = None,
+):
     try:
-        result = ai_services.generate_growing_advisory(weather, crop_stage)
+        payload = data or {}
+        weather = payload.get("weather", weather)
+        crop_stage = payload.get("crop_stage", crop_stage)
+        user_query = payload.get("user_query", user_query)
+        if user_query:
+            context = {
+                "crop_type": payload.get("crop_type"),
+                "district": payload.get("district"),
+                "npk": payload.get("npk"),
+                "mandi_prices": payload.get("mandi_prices"),
+                "allocation": payload.get("allocation"),
+            }
+            result = ai_services.generate_planning_voice_advice(user_query, context)
+        else:
+            result = ai_services.generate_growing_advisory(weather, crop_stage)
         return {"status": "success", "data": result}
     except Exception as e:
         error_msg = str(e)
@@ -543,6 +562,17 @@ def sarvam_tts(text: str, language: str = "hi"):
         return {"status": "success", "message": f"Successfully mapped TTS for: {text}"}
     except Exception as e:
         return {"status": "error", "source": "Sarvam API", "message": str(e)}
+
+
+@app.post("/api/stt")
+async def groq_stt(file: UploadFile = File(...), language: str = "en"):
+    try:
+        audio_bytes = await file.read()
+        text = ai_services.transcribe_audio_with_groq(audio_bytes, file.filename or "audio.webm", language=language)
+        return {"status": "success", "text": text}
+    except Exception as e:
+        error_msg = str(e)
+        return {"status": "error", "source": "Groq STT", "message": error_msg}
 
 
 @app.post("/api/register")
@@ -625,6 +655,7 @@ def calculate_optimal_mandi(data: Optional[dict] = None):
         mandi_charges = mandi["toll"] + mandi["labor"]
         decay_loss = gross_revenue * spoilage_rate
         net_profit = gross_revenue - (fuel_cost + driver_fee + mandi_charges + decay_loss)
+        trend = ai_services.analyze_price_trends(crop_type, mandi["current_price"])
 
         results.append(
             {
@@ -640,6 +671,10 @@ def calculate_optimal_mandi(data: Optional[dict] = None):
                 "spoilage_rate": round(spoilage_rate, 3),
                 "decay_loss": round(decay_loss, 2),
                 "net_profit": round(net_profit, 2),
+                "trend_recommendation": trend.get("recommendation"),
+                "trend_expected_change_percent": trend.get("expected_change_percent"),
+                "trend_reason": trend.get("reason"),
+                "trend_points": trend.get("trend_points", []),
                 "risk_tag": "Low Risk",
                 "risk_reason": "Short haul with stable handling window.",
                 "is_optimal": False,

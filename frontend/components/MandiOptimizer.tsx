@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import FrostedCard from "./FrostedCard";
-import { ArrowRight, MapPin, TrendingUp, AlertTriangle, Loader2 } from "lucide-react";
+import { ArrowRight, MapPin, TrendingUp, AlertTriangle, Loader2, Clock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -20,6 +20,10 @@ type MandiRow = {
   risk_tag: string;
   risk_reason: string;
   is_optimal: boolean;
+  trend_recommendation?: "SELL_NOW" | "WAIT_2_DAYS";
+  trend_expected_change_percent?: number;
+  trend_reason?: string;
+  trend_points?: number[];
 };
 
 export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: MandiRow) => void }) {
@@ -79,6 +83,20 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
     });
   }, [rows]);
 
+  const buildSparklinePoints = (points: number[]) => {
+    if (!points || points.length < 2) return "0,18 50,12 100,6";
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const range = max - min || 1;
+    return points
+      .map((value, index) => {
+        const x = (index / (points.length - 1)) * 100;
+        const y = 18 - ((value - min) / range) * 16;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  };
+
   return (
     <div className="w-full flex flex-col gap-6">
       <div className="text-left mb-2">
@@ -111,16 +129,27 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div
-                      className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${
-                        mandi.meta.tone === "green"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : mandi.meta.tone === "red"
-                          ? "bg-rose-100 text-rose-700"
-                          : "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {mandi.meta.title}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div
+                        className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${
+                          mandi.meta.tone === "green"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : mandi.meta.tone === "red"
+                            ? "bg-rose-100 text-rose-700"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {mandi.meta.title}
+                      </div>
+                      <div
+                        className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          mandi.trend_recommendation === "WAIT_2_DAYS"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {mandi.trend_recommendation === "WAIT_2_DAYS" ? "WAIT 48H" : "SELL NOW"}
+                      </div>
                     </div>
                     <h3 className="mt-2 text-2xl font-black text-slate-900">{mandi.mandi_name}</h3>
                     <p className="text-xs text-slate-500 mt-1">{mandi.meta.subtitle}</p>
@@ -128,7 +157,30 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
                   <div className="text-right">
                     <p className="text-xs uppercase tracking-widest text-slate-500">Net Profit</p>
                     <p className="text-3xl font-black text-emerald-700">Rs {Math.round(mandi.net_profit).toLocaleString()}</p>
+                    <div
+                      className={`mt-2 inline-flex items-center gap-2 text-xs md:text-sm font-extrabold px-3 py-1 rounded-full ${
+                        (mandi.trend_expected_change_percent ?? 0) >= 0
+                          ? "text-emerald-700 bg-emerald-50"
+                          : "text-rose-700 bg-rose-50"
+                      }`}
+                    >
+                      <Clock size={12} />
+                      {`${(mandi.trend_expected_change_percent ?? 0) >= 0 ? "↑" : "↓"} ${Math.abs(
+                        Math.round(mandi.trend_expected_change_percent ?? 0)
+                      )}% expected in 48h`}
+                    </div>
                   </div>
+                </div>
+
+                <div className="h-8 w-full mt-3 opacity-60">
+                  <svg viewBox="0 0 100 20" className="w-full h-full">
+                    <polyline
+                      fill="none"
+                      stroke={(mandi.trend_expected_change_percent ?? 0) >= 0 ? "#10b981" : "#ef4444"}
+                      strokeWidth="2"
+                      points={buildSparklinePoints(mandi.trend_points ?? [])}
+                    />
+                  </svg>
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -172,9 +224,13 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
                       setSelectedMandi(mandi.mandi_id);
                       onConfirm(mandi);
                     }}
-                    className="shrink-0 px-4 py-2 bg-slate-900 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 transition-colors flex items-center gap-2"
+                    className={`shrink-0 px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 ${
+                      mandi.trend_recommendation === "WAIT_2_DAYS"
+                        ? "border border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
+                        : "bg-slate-900 text-white hover:bg-emerald-700"
+                    }`}
                   >
-                    Book Truck <ArrowRight size={16} />
+                    {mandi.trend_recommendation === "WAIT_2_DAYS" ? "Sell anyway" : "Book Truck"} <ArrowRight size={16} />
                   </button>
                 </div>
               </FrostedCard>
@@ -191,10 +247,16 @@ export default function MandiOptimizer({ onConfirm }: { onConfirm: (mandi: Mandi
             const selected = rows.find((row) => row.mandi_id === selectedMandi);
             if (selected) onConfirm(selected);
           }}
-          className="w-full py-4 bg-emerald-600 text-white font-bold font-manrope rounded-xl hover:bg-emerald-700 transition flex items-center justify-center gap-2"
+          className={`w-full py-4 font-bold font-manrope rounded-xl transition flex items-center justify-center gap-2 ${
+            rows.find((row) => row.mandi_id === selectedMandi)?.trend_recommendation === "WAIT_2_DAYS"
+              ? "border border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
+              : "bg-emerald-600 text-white hover:bg-emerald-700"
+          }`}
         >
           <TrendingUp size={18} />
-          Lock Selected Mandi & Find Driver
+          {rows.find((row) => row.mandi_id === selectedMandi)?.trend_recommendation === "WAIT_2_DAYS"
+            ? "Sell Anyway & Find Driver"
+            : "Lock Selected Mandi & Find Driver"}
         </motion.button>
       )}
     </div>

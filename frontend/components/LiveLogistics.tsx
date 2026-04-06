@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import FrostedCard from "./FrostedCard";
-import { Truck, CheckCircle2, Navigation2, XCircle, Power, MapPin, Phone } from "lucide-react";
+import { Truck, CheckCircle2, Navigation2, Power, MapPin, Phone } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
@@ -36,7 +36,8 @@ type WsBookingRequest = {
 type BookingStatus = "IDLE" | "SEARCHING" | "NEGOTIATING" | "ACCEPTED";
 
 export default function LiveLogistics() {
-  const { role, userId, userName, userPhone, driverName, driverPhone, selectedMandi, location, lockedPlan } = useAppStore();
+  const { role, userId, userName, userPhone, driverName, driverPhone, selectedMandi, location, lockedPlan, setLocation } =
+    useAppStore();
   const wsClientId = useMemo(() => (role === "Driver" ? `${userId}_driver` : `${userId}_farmer`), [role, userId]);
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
@@ -44,28 +45,49 @@ export default function LiveLogistics() {
   const [bookingStatus, setBookingStatus] = useState<BookingStatus>("IDLE");
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [currentOffer, setCurrentOffer] = useState<number | null>(null);
-  const [counterDriverId, setCounterDriverId] = useState<string | null>(null);
   const [driverOnline, setDriverOnline] = useState(role === "Driver");
   const [systemMessage, setSystemMessage] = useState("");
   const [acceptedDriver, setAcceptedDriver] = useState<{ name: string; phone: string } | null>(null);
   const [acceptedFarmer, setAcceptedFarmer] = useState<{ name: string; phone: string } | null>(null);
   const [tripMeta, setTripMeta] = useState<{ distance_km?: number; fuel_cost_estimate?: number; mandi_name?: string } | null>(null);
-  const [counterByOrder, setCounterByOrder] = useState<Record<string, number>>({});
-  const [driverActionByOrder, setDriverActionByOrder] = useState<Record<string, "idle" | "countered" | "accepted">>({});
-  const [counterReasonByOrder, setCounterReasonByOrder] = useState<Record<string, string>>({});
-  const [counterNoteByOrder, setCounterNoteByOrder] = useState<Record<string, string>>({});
-  const [liveMapPoint, setLiveMapPoint] = useState<[number, number]>([19.9975, 73.7898]);
+  const [liveMapPoint, setLiveMapPoint] = useState<[number, number] | null>(null);
+  const [geoStatus, setGeoStatus] = useState<"idle" | "locating" | "ok" | "denied" | "error">("idle");
   const watchIdRef = useRef<number | null>(null);
   const [truckIcon, setTruckIcon] = useState<DivIcon | null>(null);
 
   const mapCenter = useMemo<[number, number]>(() => {
     if (location && Array.isArray(location) && location.length === 2) return [location[0], location[1]];
-    return liveMapPoint;
+    if (liveMapPoint) return liveMapPoint;
+    return [20.5937, 78.9629];
   }, [location, liveMapPoint]);
+  const hasAccurateLocation = Boolean(
+    (location && Array.isArray(location) && location.length === 2) || liveMapPoint
+  );
 
   useEffect(() => {
     if (role === "Driver") setDriverOnline(true);
   }, [role]);
+
+  useEffect(() => {
+    if (location || typeof navigator === "undefined" || !navigator.geolocation) return;
+    setGeoStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = [pos.coords.latitude, pos.coords.longitude] as [number, number];
+        setLiveMapPoint(loc);
+        setLocation(loc);
+        setGeoStatus("ok");
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          setGeoStatus("denied");
+        } else {
+          setGeoStatus("error");
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 }
+    );
+  }, [location, setLocation]);
 
   const getApiBase = () => {
     if (typeof window === "undefined") return "http://localhost:8000";
@@ -146,16 +168,11 @@ export default function LiveLogistics() {
           if (prev.some((req) => req.order_id === data.order_id)) return prev;
           return [...prev, data];
         });
-        setCounterByOrder((prev) => ({
-          ...prev,
-          [data.order_id]: Math.max(Math.round((data.details?.price || 1200) + 100), 1000),
-        }));
       }
 
       if (role === "Farmer" && (data.event === "BID_UPDATED" || data.event === "COUNTER_OFFER_RECEIVED")) {
         setBookingStatus("NEGOTIATING");
         setCurrentOffer(data.new_price);
-        setCounterDriverId(data.driver_id || null);
         if (data.driver_name || data.driver_phone) {
           setAcceptedDriver({
             name: data.driver_name || "Driver",
@@ -179,6 +196,11 @@ export default function LiveLogistics() {
       if (data.event === "TRIP_ACTIVE" || data.event === "BOOKING_CONFIRMED") {
         setBookingStatus("ACCEPTED");
         setCurrentOrderId((prev) => data.order_id || prev);
+        if (role === "Driver") {
+          setSystemMessage("Order confirmed. Proceed to pickup.");
+        } else if (role === "Farmer") {
+          setSystemMessage("Driver confirmed. Trip is now active.");
+        }
         if (data.driver_name || data.driver_phone) {
           setAcceptedDriver({
             name: data.driver_name || "Driver",
@@ -204,12 +226,8 @@ export default function LiveLogistics() {
         setActiveRequests((prev) => prev.filter((r) => r.order_id !== data.order_id));
       }
 
-      if (role === "Driver" && data.event === "BID_REJECTED") {
-        setSystemMessage("Farmer rejected the counter-offer.");
-      }
-      if (role === "Driver" && data.event === "COUNTER_BID_SENT") {
-        setSystemMessage(`Counter sent: Rs ${Math.round(data.new_price || 0)}`);
-        setDriverActionByOrder((prev) => ({ ...prev, [data.order_id]: "countered" }));
+      if (data.event === "ERROR") {
+        setSystemMessage(data.message || "Something went wrong.");
       }
     };
 
@@ -230,6 +248,7 @@ export default function LiveLogistics() {
       (pos) => {
         const loc = [pos.coords.latitude, pos.coords.longitude] as [number, number];
         setLiveMapPoint(loc);
+        setLocation(loc);
         socket.send(
           JSON.stringify({
             event: "LOCATION_UPDATE",
@@ -290,24 +309,6 @@ export default function LiveLogistics() {
     );
   };
 
-  const counterOffer = (req: WsBookingRequest) => {
-    if (!socket) return;
-    const proposed = counterByOrder[req.order_id] ?? req.details.price;
-    const reason = counterReasonByOrder[req.order_id] || "Fuel cost";
-    const note = counterNoteByOrder[req.order_id] || "";
-    socket.send(
-      JSON.stringify({
-        event: "COUNTER_BID",
-        order_id: req.order_id,
-        price: proposed,
-        reason,
-        note,
-      })
-    );
-    setDriverActionByOrder((prev) => ({ ...prev, [req.order_id]: "countered" }));
-    setSystemMessage(`Counter offer sent for ${req.details.farmer_name}: Rs ${Math.round(proposed)} (${reason})`);
-  };
-
   const declineBooking = (req: WsBookingRequest) => {
     if (!socket) return;
     socket.send(
@@ -329,31 +330,18 @@ export default function LiveLogistics() {
       })
     );
     setBookingStatus("ACCEPTED");
-    setDriverActionByOrder((prev) => ({ ...prev, [req.order_id]: "accepted" }));
   };
 
   const acceptCounterByFarmer = () => {
-    if (!socket || !currentOrderId || !counterDriverId) return;
+    if (!socket || !currentOrderId) return;
+    setSystemMessage("Confirming driver... Please wait.");
     socket.send(
       JSON.stringify({
         event: "ACCEPT_OFFER",
         order_id: currentOrderId,
-        driver_id: counterDriverId,
         price: currentOffer,
       })
     );
-  };
-
-  const rejectCounterByFarmer = () => {
-    if (!socket || !currentOrderId) return;
-    socket.send(
-      JSON.stringify({
-        event: "REJECT_OFFER",
-        order_id: currentOrderId,
-        driver_id: counterDriverId,
-      })
-    );
-    setBookingStatus("SEARCHING");
   };
 
   const renderMap = () => (
@@ -368,6 +356,15 @@ export default function LiveLogistics() {
           </>
         )}
       </MapContainer>
+      <div className="px-3 py-2 text-[11px] text-slate-500 border-t border-outline-variant/20 bg-white/60">
+        {hasAccurateLocation
+          ? "Location locked to your device."
+          : geoStatus === "locating"
+          ? "Fetching your location..."
+          : geoStatus === "denied"
+          ? "Location permission denied. Using default map."
+          : "Location unavailable. Using default map."}
+      </div>
     </div>
   );
 
@@ -398,7 +395,7 @@ export default function LiveLogistics() {
         {bookingStatus === "NEGOTIATING" && (
           <div className="space-y-4">
             <div className="p-4 bg-primary/20 rounded-xl border border-primary/50 text-center">
-              <p className="text-sm text-on-surface-variant mb-1">Driver Counter-Offer</p>
+              <p className="text-sm text-on-surface-variant mb-1">Driver Offer</p>
               <p className="text-3xl font-manrope font-bold text-primary">Rs {currentOffer}</p>
               {acceptedDriver && (
                 <p className="text-xs mt-2 text-on-surface-variant">
@@ -406,20 +403,12 @@ export default function LiveLogistics() {
                 </p>
               )}
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={rejectCounterByFarmer}
-                className="flex-1 py-3 border border-error text-error font-bold rounded-xl flex items-center justify-center gap-2"
-              >
-                <XCircle size={18} /> Reject
-              </button>
-              <button
-                onClick={acceptCounterByFarmer}
-                className="flex-[2] py-3 bg-primary text-on-primary font-bold rounded-xl shadow-[0_5px_15px_rgba(204,151,255,0.3)] flex items-center justify-center gap-2"
-              >
-                <CheckCircle2 size={18} /> Accept
-              </button>
-            </div>
+            <button
+              onClick={acceptCounterByFarmer}
+              className="w-full py-3 bg-primary text-on-primary font-bold rounded-xl shadow-[0_5px_15px_rgba(204,151,255,0.3)] flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 size={18} /> Confirm Order
+            </button>
           </div>
         )}
         {bookingStatus === "ACCEPTED" && (
@@ -429,7 +418,7 @@ export default function LiveLogistics() {
                 <Truck className="text-emerald-700" size={18} />
               </div>
               <div className="min-w-0">
-                <p className="text-base font-bold text-emerald-800">Live trip active</p>
+                <p className="text-base font-bold text-emerald-800">Order confirmed</p>
                 <span className="text-xs text-slate-700 flex items-center gap-1">
                   <Navigation2 size={12} /> Driver confirmed
                 </span>
@@ -456,7 +445,11 @@ export default function LiveLogistics() {
             </div>
           </div>
         )}
-        {systemMessage && <p className="text-xs mt-3 text-slate-600">{systemMessage}</p>}
+        {systemMessage && (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800">
+            {systemMessage}
+          </div>
+        )}
       </FrostedCard>
     );
   }
@@ -552,83 +545,19 @@ export default function LiveLogistics() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 gap-2">
-                      <label className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                        Counter Reason
-                      </label>
-                      <select
-                        value={counterReasonByOrder[req.order_id] || "Fuel cost"}
-                        onChange={(e) =>
-                          setCounterReasonByOrder((prev) => ({ ...prev, [req.order_id]: e.target.value }))
-                        }
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700"
-                      >
-                        {[
-                          "Fuel cost",
-                          "Distance too long",
-                          "Night travel risk",
-                          "Heavy load",
-                          "Return load needed",
-                          "Other",
-                        ].map((reason) => (
-                          <option key={reason} value={reason}>
-                            {reason}
-                          </option>
-                        ))}
-                      </select>
-                      {counterReasonByOrder[req.order_id] === "Other" && (
-                        <input
-                          type="text"
-                          placeholder="Add a short reason"
-                          value={counterNoteByOrder[req.order_id] || ""}
-                          onChange={(e) =>
-                            setCounterNoteByOrder((prev) => ({ ...prev, [req.order_id]: e.target.value }))
-                          }
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                        />
-                      )}
-                    </div>
-                    <div className="w-full">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-xs text-slate-600">Drag to counter-offer:</span>
-                        <span className="font-bold text-primary">Rs {Math.round(counterByOrder[req.order_id] ?? req.details.price)}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={Math.round(req.details.price)}
-                        max={Math.round(req.details.price + 2000)}
-                        step={50}
-                        value={counterByOrder[req.order_id] ?? Math.round(req.details.price)}
-                        onChange={(e) =>
-                          setCounterByOrder((prev) => ({
-                            ...prev,
-                            [req.order_id]: parseInt(e.target.value),
-                          }))
-                        }
-                        className="w-full accent-primary"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => declineBooking(req)}
-                        className="px-4 py-3 rounded-lg border border-error text-error font-bold hover:bg-error/10 transition-colors"
-                      >
-                        Decline
-                      </button>
-                      <button
-                        onClick={() => counterOffer(req)}
-                        className="flex-1 py-3 rounded-lg border-2 border-primary text-primary font-bold hover:bg-primary/10 transition-colors"
-                      >
-                        {driverActionByOrder[req.order_id] === "countered" ? "Counter Sent" : "Send Counter"}
-                      </button>
-                      <button
-                        onClick={() => acceptBookingDriver(req)}
-                        className="flex-[1.5] py-3 rounded-lg bg-tertiary-container text-surface font-bold shadow-[0_5px_15px_rgba(109,254,156,0.3)]"
-                      >
-                        {driverActionByOrder[req.order_id] === "accepted" ? "Accepted" : "Accept Direct"}
-                      </button>
-                    </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => declineBooking(req)}
+                      className="px-4 py-3 rounded-lg border border-error text-error font-bold hover:bg-error/10 transition-colors"
+                    >
+                      Decline
+                    </button>
+                    <button
+                      onClick={() => acceptBookingDriver(req)}
+                      className="flex-1 py-3 rounded-lg bg-tertiary-container text-surface font-bold shadow-[0_5px_15px_rgba(109,254,156,0.3)]"
+                    >
+                      Accept
+                    </button>
                   </div>
                 </FrostedCard>
               </motion.div>
